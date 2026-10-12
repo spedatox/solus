@@ -17,7 +17,7 @@ async def parse_csv(db, user_id, book_id, original):
         raise SolusError("CSV must be text under 1 MB.")
     reader = csv.DictReader(io.StringIO(original.lstrip('\ufeff')), strict=True)
     required = {"date", "description", "kind", "amount", "debit_account", "credit_account", "currency", "event_ref"}
-    optional = {"installments", "booked_on", "first_due_on", "document_number", "party"}
+    optional = {"installments", "booked_on", "billed_on", "first_due_on", "document_number", "party"}
     if not reader.fieldnames or len(set(reader.fieldnames)) != len(reader.fieldnames) or not required <= set(reader.fieldnames) or set(reader.fieldnames) - required - optional:
         raise SolusError("CSV needs unique headers: " + ", ".join(sorted(required)) + ". Optional: " + ", ".join(sorted(optional)))
     accounts = {(a.name, a.currency): a.id for a in (await db.execute(select(SolusAccount).where(SolusAccount.book_id == book_id))).scalars()}
@@ -43,6 +43,8 @@ async def parse_csv(db, user_id, book_id, original):
                     {"account_id": credit, "side": "credit", "amount": row["amount"]}]}
             if row.get("booked_on"):
                 payload["booked_on"] = row["booked_on"]
+            if row.get("billed_on"):
+                payload["billed_on"] = row["billed_on"]
             if row.get("installments"):
                 payload["installments"] = int(row["installments"])
             if row.get("first_due_on"):

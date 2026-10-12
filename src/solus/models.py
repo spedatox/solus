@@ -84,6 +84,7 @@ class SolusCardStatement(Base):
     due_on: Mapped[date] = mapped_column(Date)
     stated_balance_minor: Mapped[int | None] = mapped_column(BigInteger)
     minimum_due_minor: Mapped[int | None] = mapped_column(BigInteger)
+    event_ids: Mapped[list] = mapped_column(JSON, default=list)
     evidence: Mapped[list] = mapped_column(JSON)
     version: Mapped[int] = mapped_column(Integer, default=1)
 

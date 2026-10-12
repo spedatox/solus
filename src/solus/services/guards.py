@@ -6,6 +6,9 @@
 def install_guards(connection):
     if connection.dialect.name != "sqlite":
         raise RuntimeError("Solus ledger guards currently require SQLite; do not activate on another store.")
+    columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(solus_card_statements)")}
+    if "event_ids" not in columns:
+        connection.exec_driver_sql("ALTER TABLE solus_card_statements ADD COLUMN event_ids JSON NOT NULL DEFAULT '[]'")
     definitions = {
         "event_insert": "BEFORE INSERT ON solus_events WHEN NEW.posted != 0 BEGIN SELECT RAISE(ABORT, 'insert journal as draft'); END",
         "event_immutable": "BEFORE UPDATE ON solus_events WHEN OLD.posted = 1 BEGIN SELECT RAISE(ABORT, 'posted journal is immutable'); END",

@@ -193,6 +193,7 @@ async def test_statement_override_and_calendar_editions(ledger):
         september = await reports.statement(db,1,book,ids['Card'],'2026-09')
         october = await reports.statement(db,1,book,ids['Card'],'2026-10')
         assert august['closes_on']=='2026-08-30' and august['due_on']=='2026-09-12'
+        assert august['unbilled_principal']=='50.00'
         assert august['closing_billed_balance']=='50.00' and august['difference']=='0.00'
         assert september['closes_on']=='2026-09-30' and october['closes_on']=='2026-10-15'
         items=(await reports.schedules(db,1,book))['items']
@@ -380,3 +381,41 @@ async def test_missing_calendar_and_bad_journal_save_nothing(ledger):
         await run_financial_command(ctx, invalid)
     async with factory() as db:
         assert await db.scalar(select(func.count()).select_from(SolusEvent)) == 0
+
+async def test_statement_billing_date_and_unbilled_principal(ledger):
+    ctx, factory, book, ids = ledger
+    unbilled=(await run_financial_command(ctx,{"operation":"account_create","command_key":str(uuid4()),"book_id":book,"name":"Unbilled principal","account_type":"liability"}))["account_id"]
+    await run_financial_command(ctx,{"operation":"card_calendar_put","command_key":str(uuid4()),"book_id":book,"account_id":ids["Card"],"closing_day":1,"due_offset":10,"expected_version":0,"unbilled_account_id":unbilled})
+    receipt=await run_financial_command(ctx,purchase(book,ids,kind="journal",occurred_on="2026-08-01",billed_on="2026-09-01",lines=[
+        {"account_id":ids["Clothing"],"side":"debit","amount":"1000.00"},
+        {"account_id":ids["Card"],"side":"credit","amount":"333.40"},
+        {"account_id":unbilled,"side":"credit","amount":"666.60"}]))
+    async with factory() as db:
+        before=await reports.statement(db,1,book,ids["Card"],"2026-08")
+        billed=await reports.statement(db,1,book,ids["Card"],"2026-09")
+        assert before["closing_billed_balance"]=="0.00"
+        assert billed["closing_billed_balance"]=="333.40"
+        assert billed["total_principal_balance"]=="1000.00" and billed["unbilled_principal"]=="666.60"
+        assert (await reports.summary(db,1,book,"2026-08"))["totals"]["TRY"]["expense"]=="1000.00"
+    await run_financial_command(ctx,{"operation":"reverse","command_key":str(uuid4()),"book_id":book,"event_id":receipt["event_id"],"occurred_on":"2026-08-01","reason":"Replace source mapping"})
+    async with factory() as db:
+        view=await reports.statement(db,1,book,ids["Card"],"2026-09")
+        assert view["closing_billed_balance"]=="0.00" and view["total_principal_balance"]=="0.00"
+
+async def test_statement_membership_includes_printed_boundary_and_preserves_retry(ledger):
+    import hashlib,json
+    ctx,factory,book,ids=ledger
+    await run_financial_command(ctx,{"operation":"card_calendar_put","command_key":str(uuid4()),"book_id":book,"account_id":ids["Card"],"closing_day":1,"due_offset":10,"expected_version":0})
+    payload=purchase(book,ids,kind="bill",occurred_on="2026-08-01",lines=[{"account_id":ids["Clothing"],"side":"debit","amount":"100.00"},{"account_id":ids["Card"],"side":"credit","amount":"100.00"}])
+    receipt=await run_financial_command(ctx,payload)
+    await run_financial_command(ctx,{"operation":"card_statement_put","command_key":str(uuid4()),"book_id":book,"account_id":ids["Card"],"period":"2026-09","opens_after":"2026-08-01","closes_on":"2026-09-01","due_on":"2026-09-11","stated_balance":"100.00","minimum_due":"20.00","expected_version":0,"event_ids":[receipt["event_id"]]})
+    async with factory() as db:
+        assert (await reports.statement(db,1,book,ids["Card"],"2026-08"))["closing_billed_balance"]=="0.00"
+        assert (await reports.statement(db,1,book,ids["Card"],"2026-09"))["difference"]=="0.00"
+        canonical={**payload,"command_key":"older-schema-retry-key","evidence":[],"booked_on":None,"document":None,"related_event_id":None,"first_due_on":None,"first_statement_on":None,"installments":1,"schedule_amount":None,"schedule_currency":None,"settlements":[]}
+        saved={**receipt,"command_key":canonical["command_key"]}
+        db.add(SolusCommand(user_id=1,command_key=canonical["command_key"],payload_hash=hashlib.sha256(json.dumps(canonical,sort_keys=True,separators=(",", ":")).encode()).hexdigest(),payload=canonical,receipt=saved,actor="owner",request_id=str(uuid4())))
+        await db.commit()
+    assert await run_financial_command(ctx,canonical)==saved
+    with pytest.raises(ValueError,match="Idempotency"):
+        await run_financial_command(ctx,{**canonical,"description":"changed"})

@@ -89,6 +89,7 @@ class Post(Scoped):
     description: str = Field(min_length=1, max_length=500)
     occurred_on: date
     booked_on: date | None = None
+    billed_on: date | None = None
     document: Document | None = None
     related_event_id: str | None = Field(default=None, min_length=1, max_length=36)
     lines: list[Line] = Field(min_length=2, max_length=100)
@@ -102,6 +103,8 @@ class Post(Scoped):
 
     @model_validator(mode="after")
     def schedule_valid(self):
+        if self.billed_on and (self.billed_on < self.occurred_on or self.kind == "card_purchase"):
+            raise ValueError("Billed date must follow the occurrence; scheduled card purchases use their schedules.")
         if self.first_due_on:
             if not self.schedule_amount or not self.schedule_currency:
                 raise ValueError("Schedule needs an explicit amount, currency and first due date.")
@@ -202,6 +205,7 @@ class ValuationPut(Scoped):
 
 class CardCalendarPut(Scoped):
     operation: Literal["card_calendar_put"]
+    unbilled_account_id: str | None = Field(default=None, min_length=1, max_length=36)
     account_id: str = Field(min_length=1, max_length=36)
     closing_day: int = Field(ge=1, le=31, strict=True)
     due_day: int | None = Field(default=None, ge=1, le=31, strict=True)
@@ -221,6 +225,7 @@ class CardCalendarPut(Scoped):
 class CardStatementPut(Scoped):
     operation: Literal["card_statement_put"]
     account_id: str = Field(min_length=1, max_length=36)
+    event_ids: list[str] | None = Field(default=None, max_length=500)
     period: str = Field(pattern=r"^\d{4}-\d{2}$")
     opens_after: date
     closes_on: date

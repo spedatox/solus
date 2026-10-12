@@ -16,6 +16,7 @@ An assistant can propose a transaction. Python validates it, balances it, alloca
 
 - Double-entry journals, assets, liabilities, equity, income and expense accounts; independent personal/business books.
 - Integer money with currency-specific precision, balanced entries per currency and explicit FX entries. Native currencies remain separate.
+- Printed statement-to-event reconciliation, separate billed/unbilled principal and source-specific billing dates.
 - Credit-card purchases and installments; configurable closing/due rules, dated rule changes and overrides from individual statements. Bank booking dates determine statement inclusion.
 - Loans, invoices, bills, partial settlements, refunds and reversals with preserved history.
 - Budgets, recurring estimates, goals and projections, separated from actual postings.

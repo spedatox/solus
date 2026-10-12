@@ -32,7 +32,12 @@ async def run_financial_command(context, payload):
                 SolusCommand.user_id == context.user_id, SolusCommand.command_key == command.command_key))
             if previous:
                 if previous.payload_hash != fingerprint:
-                    raise SolusError("Idempotency key already belongs to a different command.", 409)
+                    try:
+                        same = parse_command(previous.payload).model_dump(mode="json") == canonical
+                    except ValueError:
+                        same = False
+                    if not same:
+                        raise SolusError("Idempotency key already belongs to a different command.", 409)
                 receipt = dict(previous.receipt)
                 await writer.rollback()
                 return receipt

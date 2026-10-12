@@ -221,6 +221,8 @@ async def statement(db, user_id, book_id, account_id, period):
     if not calendar:
         raise SolusError("Configure the card's statement dates in Solus first.")
     previous, close, due = await card_cycle(db, account_id, first)
+    declared = (await db.execute(select(SolusCardStatement).where(SolusCardStatement.account_id==account_id))).scalars().all()
+    statement_dates = {event_id: item.closes_on for item in declared for event_id in (item.event_ids or [])}
     date_cache, schedules_by_event = {}, defaultdict(list)
     items = (await db.execute(select(SolusScheduleItem).join(SolusPosting,
         SolusPosting.event_id == SolusScheduleItem.event_id).where(
@@ -235,6 +237,9 @@ async def statement(db, user_id, book_id, account_id, period):
         if booking > close:
             continue
         principal_balance -= p.amount_minor
+        billing = statement_dates.get(e.id, date.fromisoformat(e.details.get("billed_on", booking.isoformat())))
+        if e.reverses_id in statement_dates:
+            billing = max(booking,statement_dates[e.reverses_id])
         if e.kind == "card_purchase":
             date_cache[("event", e.id)] = e
             for item in schedules_by_event[e.id]:
@@ -249,9 +254,20 @@ async def statement(db, user_id, book_id, account_id, period):
                     if billed_on <= close:
                         deltas.append((max(booking, billed_on), -item.amount_minor, e.id, e.description, "reversal"))
             else:
-                deltas.append((booking, -p.amount_minor, e.id, e.description, "reversal"))
+                deltas.append((billing, -p.amount_minor, e.id, e.description, "reversal"))
         else:
-            deltas.append((booking, -p.amount_minor, e.id, e.description, e.kind))
+            deltas.append((billing, -p.amount_minor, e.id, e.description, e.kind))
+    editions = [v for v in calendar.history if v["effective_period"] <= period]
+    linked_id = max(editions, key=lambda v: (v["effective_period"],v["version"])).get("unbilled_account_id") if editions else None
+    unbilled_balance = 0
+    if linked_id:
+        linked = await db.get(SolusAccount, linked_id)
+        if not linked or linked.book_id != book.id or linked.currency != account.currency or linked.account_type != "liability":
+            raise SolusError("Unbilled account mapping is invalid.",409)
+        values = (await db.execute(select(SolusPosting.amount_minor).join(SolusEvent,SolusEvent.id==SolusPosting.event_id).where(
+            SolusPosting.account_id==linked_id, SolusEvent.posted.is_(True), SolusEvent.occurred_on<=close))).scalars()
+        unbilled_balance = -sum(values)
+        principal_balance += unbilled_balance
     opening = sum(v for d, v, *_ in deltas if d <= previous)
     current = [(d, v, eid, desc, kind) for d, v, eid, desc, kind in deltas if previous < d <= close]
     closing = opening + sum(v for _, v, *_ in current)
@@ -262,6 +278,7 @@ async def statement(db, user_id, book_id, account_id, period):
         "period": period, "opens_after": previous.isoformat(), "closes_on": close.isoformat(), "due_on": due.isoformat(),
         "revision": book.revision, "status": "compared" if stated is not None else "estimated",
         "statement_version": observed.version if observed else 0,
+        "unbilled_principal": money(principal_balance - closing, account.scale),
         "opening_billed_balance": money(opening, account.scale), "closing_billed_balance": money(closing, account.scale),
         "total_principal_balance": money(principal_balance, account.scale),
         "stated_balance": money(stated, account.scale) if stated is not None else None,

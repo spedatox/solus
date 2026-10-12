@@ -196,6 +196,13 @@ async def apply(db, command, context, evidence):
         if calendar and book.closed_through and date.fromisoformat(effective+'-01') <= book.closed_through:
             raise SolusError("Reopen this period before changing its card calendar.",409)
         history = list(calendar.history) if calendar else []
+        unbilled = command.unbilled_account_id
+        if "unbilled_account_id" not in command.model_fields_set and history:
+            unbilled = history[-1].get("unbilled_account_id")
+        if unbilled:
+            linked = await account_for(db, book.id, unbilled)
+            if linked.id == account.id or linked.account_type != "liability" or linked.currency != account.currency:
+                raise SolusError("Unbilled principal needs a separate liability account in the same currency/book.")
         if calendar and not history:
             history.append({"effective_period": "0001-01", "closing_day": calendar.closing_day,
                 "due_day": calendar.due_day, "due_offset": calendar.due_offset, "version": calendar.version})
@@ -208,7 +215,7 @@ async def apply(db, command, context, evidence):
             db.add(calendar)
         await db.flush()
         calendar.history = history + [{"effective_period": effective, "closing_day": command.closing_day,
-            "due_day": command.due_day, "due_offset": command.due_offset, "version": calendar.version}]
+            "due_day": command.due_day, "due_offset": command.due_offset, "version": calendar.version, "unbilled_account_id": unbilled}]
         await db.flush()
         book.revision += 1
         return {"book_id": book.id, "version": calendar.version, "revision": book.revision}
@@ -234,6 +241,21 @@ async def apply(db, command, context, evidence):
             db.add(statement)
         else:
             statement.version += 1
+        statement.opens_after, statement.closes_on, statement.due_on = command.opens_after, command.closes_on, command.due_on
+        statement.evidence = evidence
+        if command.event_ids is not None:
+            if len(set(command.event_ids)) != len(command.event_ids):
+                raise SolusError("A statement event can be linked only once.")
+            others = (await db.execute(select(SolusCardStatement).where(SolusCardStatement.account_id==account.id,SolusCardStatement.period!=command.period))).scalars().all()
+            used = {event_id for other in others for event_id in (other.event_ids or [])}
+            for event_id in command.event_ids:
+                original = await db.get(SolusEvent,event_id)
+                linked = await db.scalar(select(SolusPosting.id).where(SolusPosting.event_id==event_id,SolusPosting.account_id==account.id))
+                if not original or original.book_id!=book.id or not original.posted or not linked or original.kind=="card_purchase" or original.occurred_on>command.closes_on:
+                    raise SolusError("Statement link needs a posted non-scheduled movement on this card before closing.")
+                if event_id in used:
+                    raise SolusError("Movement already belongs to another statement; correct that statement first.",409)
+            statement.event_ids = command.event_ids
         statement.opens_after, statement.closes_on, statement.due_on = command.opens_after, command.closes_on, command.due_on
         from solus.services.reconciliation import signed_minor
         statement.stated_balance_minor = signed_minor(command.stated_balance, account.currency) if command.stated_balance is not None else None
@@ -294,8 +316,11 @@ async def apply(db, command, context, evidence):
             if await effective_settled(db, item_id):
                 raise SolusError("Reverse linked payments before reversing this settled obligation.", 409)
         postings = (await db.execute(select(SolusPosting).where(SolusPosting.event_id == original.id))).scalars().all()
+        details = {"original_kind": original.kind}
+        if original.details.get("billed_on"):
+            details["billed_on"] = max(original.details["billed_on"],command.occurred_on.isoformat())
         event = await create_event(db, book, context, f"reverse:{original.id}", "reversal", command.reason,
-                                   command.occurred_on, evidence, {"original_kind": original.kind}, original.id)
+                                   command.occurred_on, evidence, details, original.id)
         for posting in postings:
             db.add(SolusPosting(book_id=book.id, event_id=event.id, account_id=posting.account_id, amount_minor=-posting.amount_minor))
     elif isinstance(command, Post):
@@ -325,6 +350,12 @@ async def apply(db, command, context, evidence):
         details = {"booked_on": (command.booked_on or command.occurred_on).isoformat()}
         if command.kind == "card_purchase":
             details["first_statement_on"] = command.first_statement_on.isoformat() if command.first_statement_on else None
+        if command.billed_on:
+            if command.billed_on > datetime.now(ZoneInfo(book.timezone)).date():
+                raise SolusError("A future billed date cannot represent a confirmed statement line.")
+            if not any(a.account_type == "liability" for a, _ in amounts):
+                raise SolusError("A billed date belongs to a liability statement movement.")
+            details["billed_on"] = command.billed_on.isoformat()
         if command.related_event_id:
             related = await db.get(SolusEvent, command.related_event_id)
             if not related or related.book_id != book.id or not related.posted:
