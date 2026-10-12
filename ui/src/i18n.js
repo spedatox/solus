@@ -29,6 +29,20 @@ export function translate(text, language) {
   return language === 'tr' ? (turkish[text] ?? text) : text
 }
 const turkish = {
+"Source-supported account balances":"Kaynakla doğrulanan hesap bakiyeleri",
+"History is incomplete. Unknown transfers and missing account history are not your assets or debt. A current net worth cannot be calculated yet.":"Geçmiş eksik. Belirsiz transferler ve eksik hesap geçmişi gerçek varlığınız veya borcunuz değildir. Güncel net varlığınız henüz hesaplanamaz.",
+"Each balance below shows its source date. Later recorded movements do not establish a current balance when purchases or opening balances are missing.":"Her bakiyenin kaynak tarihi aşağıda belirtilir. Alışverişler veya açılış bakiyeleri eksikse sonraki para hareketleri güncel bakiyeyi kanıtlamaz.",
+"Reconciled through":"Mutabakat tarihi:",
+"No reconciled source balance":"Mutabakatla doğrulanmış bakiye yok",
+"Unknown balance":"Bakiye bilinmiyor",
+"Current balance unverified":"Güncel bakiye doğrulanmadı",
+"Transfers and opening balances awaiting review":"İncelenecek transferler ve açılış bakiyeleri",
+"These are incomplete bookkeeping offsets, not amounts you own or owe. They are excluded from the financial accounts above.":"Bunlar eksik geçmişin muhasebe karşılıklarıdır; sahip olduğunuz veya borçlu olduğunuz para değildir. Yukarıdaki finansal hesaplara dahil edilmez.",
+"Bookkeeping offset":"Muhasebe karşılığı",
+"Raw bookkeeping totals ·":"Ham muhasebe toplamları ·",
+"Technical ledger totals":"Teknik defter toplamları",
+"These totals include incomplete migration offsets. Zero difference proves balanced entries, not a complete or correctly classified financial position.":"Bu toplamlar eksik aktarımın muhasebe karşılıklarını da içerir. Farkın sıfır olması yalnızca kayıtların dengeli olduğunu gösterir; finansal durumun tam veya doğru sınıflandırılmış olduğunu kanıtlamaz.",
+
   "Loading data…": "Veriler yükleniyor…",
   "Please wait; the screen will update when this finishes.": "Lütfen bekleyin; işlem tamamlandığında ekran güncellenecek.",
 

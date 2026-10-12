@@ -419,3 +419,23 @@ async def test_statement_membership_includes_printed_boundary_and_preserves_retr
     assert await run_financial_command(ctx,canonical)==saved
     with pytest.raises(ValueError,match="Idempotency"):
         await run_financial_command(ctx,{**canonical,"description":"changed"})
+
+
+@pytest.mark.asyncio
+async def test_review_accounts_are_not_presented_as_established_debt(ledger):
+    context, factory, book, ids = ledger
+    await run_financial_command(context, {"operation": "post", "command_key": str(uuid4()),
+        "book_id": book, "occurrence_key": str(uuid4()), "kind": "journal", "description": "Unclassified receipt", "occurred_on": "2026-08-10",
+        "lines": [{"account_id": ids['Bank'], "side": "debit", "amount": "100000.00"},
+                  {"account_id": ids['Card'], "side": "credit", "amount": "100000.00"}]})
+    await run_financial_command(context, {"operation": "account_report_put", "command_key": str(uuid4()),
+        "book_id": book, "account_id": ids['Card'], "expected_role": "financial", "report_role": "review",
+        "note": "Unknown receipt classification, not established debt"})
+    async with factory() as db:
+        result = await reports.business_report(db, 1, book, '2026-08')
+        assert result['provisional'] is True
+        assert ids['Card'] not in {a['account_id'] for a in result['financial_accounts']}
+        assert next(a for a in result['review_accounts'] if a['account_id'] == ids['Card'])['amount'] == '100000.00'
+        assert next(a for a in result['balances'] if a['account_id'] == ids['Bank'])['amount'] == '100000.00'
+        assert result['balance_sheet']['TRY']['check'] == '0.00'
+

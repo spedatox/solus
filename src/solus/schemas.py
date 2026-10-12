@@ -63,6 +63,14 @@ class AccountCreate(Scoped):
         return value
 
 
+class AccountReportPut(Scoped):
+    operation: Literal["account_report_put"]
+    account_id: str = Field(min_length=1, max_length=36)
+    expected_role: Literal["financial", "review"]
+    report_role: Literal["financial", "review"]
+    note: str = Field(min_length=1, max_length=1000)
+
+
 class Line(Strict):
     account_id: str = Field(min_length=1, max_length=36)
     side: Literal["debit", "credit"]
@@ -266,7 +274,7 @@ class PlanPut(Scoped):
         return self
 
 
-SolusCommandInput = Annotated[BookCreate | AccountCreate | Post | Reverse | ClosePeriod | PlanPut | CardCalendarPut | CardStatementPut | ImportCommit | Reconcile | InvestmentBuy | InvestmentSell | ValuationPut, Field(discriminator="operation")]
+SolusCommandInput = Annotated[BookCreate | AccountCreate | AccountReportPut | Post | Reverse | ClosePeriod | PlanPut | CardCalendarPut | CardStatementPut | ImportCommit | Reconcile | InvestmentBuy | InvestmentSell | ValuationPut, Field(discriminator="operation")]
 
 
 def parse_command(payload: dict):

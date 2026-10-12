@@ -50,6 +50,8 @@ class SolusAccount(Base):
     currency: Mapped[str] = mapped_column(String(3))
     scale: Mapped[int] = mapped_column(Integer)
     closed: Mapped[bool] = mapped_column(Boolean, default=False)
+    report_role: Mapped[str] = mapped_column(String(16), default="financial")
+    report_note: Mapped[str | None] = mapped_column(String(1000))
 
 
 class SolusCardCalendar(Base):

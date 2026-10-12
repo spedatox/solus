@@ -35,7 +35,7 @@ async def accounts(db, user_id, book_id):
     values = (await db.execute(select(SolusAccount).where(SolusAccount.book_id == book_id).order_by(SolusAccount.name))).scalars().all()
     calendars = {c.account_id: c for c in (await db.execute(select(SolusCardCalendar).where(SolusCardCalendar.book_id == book_id))).scalars()}
     return [{"id": a.id, "name": a.name, "account_type": a.account_type, "currency": a.currency,
-             "scale": a.scale, "closed": a.closed,
+             "scale": a.scale, "closed": a.closed, "report_role": a.report_role, "report_note": a.report_note,
              "card_calendar": ({"closing_day": calendars[a.id].closing_day, "due_day": calendars[a.id].due_day,
                 "due_offset": calendars[a.id].due_offset, "version": calendars[a.id].version,
                 "history": calendars[a.id].history} if a.id in calendars else None)} for a in values]
@@ -88,7 +88,7 @@ async def summary(db, user_id, book_id, period):
         "totals": {c: {"expense": money(v["expense"], scales[c]), "income": money(-v["income"], scales[c]),
                        "net_income": money(-v["income"] - v["expense"], scales[c])} for c, v in aggregate.items()},
         "balances": [{"account_id": a.id, "name": a.name, "type": a.account_type, "currency": a.currency,
-                      "amount": money(balances[a.id] * (1 if a.account_type in {"asset", "expense"} else -1), a.scale)} for a in all_accounts],
+                      "report_role": a.report_role, "report_note": a.report_note, "amount": money(balances[a.id] * (1 if a.account_type in {"asset", "expense"} else -1), a.scale)} for a in all_accounts],
         "scope": "Posted events only. Installment obligations and forecasts are separate. No currency conversion is implied."}
 
 
@@ -325,7 +325,35 @@ async def business_report(db, user_id, book_id, period):
             aging.append({'event_id':event.id,'description':event.description,'document':event.details.get('document'),
                 'kind':event.kind,'due_on':item.due_on.isoformat(),'remaining':money(remaining,item.scale),
                 'currency':item.currency,'overdue_days':overdue,'bucket':'current' if not overdue else '1-30' if overdue<=30 else '31-60' if overdue<=60 else '61-90' if overdue<=90 else '90+'})
+    # Review/clearing accounts are bookkeeping offsets, not established holdings or debt.
+    from solus.models import SolusReconciliation
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    book = await book_for(db, user_id, book_id)
+    as_of = min(last, datetime.now(ZoneInfo(book.timezone)).date())
+    sources = {}
+    records = (await db.execute(select(SolusReconciliation).where(SolusReconciliation.book_id == book_id,
+        SolusReconciliation.closes_on <= as_of).order_by(SolusReconciliation.closes_on))).scalars()
+    for record in records:
+        sources[record.account_id] = record
+    financial, review = [], []
+    for account in result['balances']:
+        if account['report_role'] == 'review':
+            review.append(account)
+        elif account['type'] in {'asset', 'liability'}:
+            source = sources.get(account['account_id'])
+            verified = None
+            if source:
+                from solus.services.reconciliation import basis
+                current = await basis(db, user_id, book_id, source.account_id, source.opens_after, source.closes_on)
+                if current['basis_hash'] == source.basis_hash:
+                    verified = current['closing_balance']
+            financial.append({**account, 'verified_through': source.closes_on.isoformat() if verified is not None else None,
+                'source_balance': verified,
+                'coverage_complete': bool(verified is not None and source.closes_on == as_of)})
     return {**result,'balance_sheet':sheets,'aging':aging,
+        'as_of': as_of.isoformat(), 'financial_accounts': financial, 'review_accounts': review,
+        'provisional': bool(review) or any(not a['coverage_complete'] for a in financial),
         'scope':'Accrual income and expenses; balance sheet and aging as of month end. Native currencies stay separate. Supplied tax journals only; no filing calculation.'}
 
 

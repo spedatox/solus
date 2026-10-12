@@ -11,7 +11,7 @@ from solus.models import (
     SolusBook, SolusAccount, SolusEvent, SolusPosting, SolusScheduleItem,
     SolusSettlement, SolusPlan, SolusCardCalendar, SolusCardStatement, SolusImport, SolusReconciliation,
 )
-from solus.schemas import BookCreate, AccountCreate, Post, Reverse, ClosePeriod, PlanPut, CardCalendarPut, CardStatementPut, ImportCommit, Reconcile, InvestmentBuy, InvestmentSell, ValuationPut
+from solus.schemas import BookCreate, AccountCreate, AccountReportPut, Post, Reverse, ClosePeriod, PlanPut, CardCalendarPut, CardStatementPut, ImportCommit, Reconcile, InvestmentBuy, InvestmentSell, ValuationPut
 from solus.services.money import currency_scale, minor, allocate, monthly_dates, money
 from solus.services.calendars import cycle_for_booking, cycle_for_close, shift_month, day_in_month
 
@@ -174,6 +174,15 @@ async def apply(db, command, context, evidence):
         db.add(imported)
         await db.flush()
         return {"book_id": book.id, "import_id": imported.id, "rows": len(results), "revision": book.revision}
+    if isinstance(command, AccountReportPut):
+        account = await account_for(db, book.id, command.account_id)
+        if account.report_role != command.expected_role:
+            raise SolusError("Account reporting classification changed; reread it.", 409)
+        account.report_role = command.report_role
+        account.report_note = command.note
+        book.revision += 1
+        await db.flush()
+        return {"book_id": book.id, "account_id": account.id, "report_role": account.report_role}
     if isinstance(command, AccountCreate):
         account = SolusAccount(book_id=book.id, name=command.name, account_type=command.account_type,
                                currency=command.currency, scale=currency_scale(command.currency))
