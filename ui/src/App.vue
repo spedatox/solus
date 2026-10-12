@@ -48,7 +48,7 @@ async function changePassword() { await act(async()=>{if(newPassword.value!==con
 async function logout() { await act(async () => { await api.logout(); authenticated.value = false; accounts.value = []; entries.value = []; summary.value = null }) }
 async function loadBooks() {
   books.value = await api.read('/books')
-  if (!bookId.value && books.value.length) bookId.value = books.value[0].id
+  if (!bookId.value && books.value.length) bookId.value = (books.value.find(b=>b.revision>0) || books.value[0]).id
   if (bookId.value) await loadBook()
 }
 async function loadBook() {
