@@ -1,4 +1,5 @@
 <script setup>
+import solusLogo from './assets/solus-logo.svg'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { createAPI } from './api'
 const api = createAPI()
@@ -145,7 +146,7 @@ onMounted(async()=>{try{configured.value=(await api.read('/auth-status')).config
 
 <template>
   <div v-if="!authenticated" class="login-shell">
-    <div class="brandmark">S</div><span class="eyebrow">YOUR BOOKS, PRECISELY</span><h1>Solus</h1>
+    <img class="brandmark" :src="solusLogo" alt="Solus logo" width="80" height="80"><span class="eyebrow">YOUR BOOKS, PRECISELY</span><h1>Solus</h1>
     <p>A clear view of your money.<br>Personal finances and business books, in one place.</p>
     <form v-if="configured" class="login-card" @submit.prevent="login"><h2>Welcome back</h2><label>Password<input :disabled="busy" v-model="password" type="password" autocomplete="current-password" maxlength="256" required></label><button :disabled="busy">{{busy?'Signing in…':'Open your books →'}}</button><small>Private financial workspace. Sessions lock after 30 minutes of inactivity.</small></form>
     <form v-else class="login-card" @submit.prevent="setup"><h2>Set your Solus password</h2><p v-if="setupToken">Your private setup link is ready. Choose a password to protect your books.</p><label v-else>Owner API key (first setup only)<input :disabled="busy" v-model="key" type="password" autocomplete="off" required></label><label>New password<input :disabled="busy" v-model="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label><label>Confirm password<input :disabled="busy" v-model="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label><button :disabled="busy">Set password & open Solus →</button><small>Use a unique password or passphrase with at least 12 characters. You can change it in Settings.</small></form>
@@ -153,7 +154,7 @@ onMounted(async()=>{try{configured.value=(await api.read('/auth-status')).config
     <p v-if="notice" role="status" class="notice">{{notice}}</p>
   </div>
   <div v-else class="shell">
-    <aside><a class="brand" href="/solus/">S<span>Solus<small>SPEDA Mark VI · Accounting</small></span></a>
+    <aside><a class="brand" href="/solus/"><img class="brand-logo" :src="solusLogo" alt="" width="44" height="44"><span>Solus<small>SPEDA Mark VI · Accounting</small></span></a>
       <nav aria-label="Main navigation"><button v-for="item in nav" :key="item" :class="{selected:page===item}" @click="page=item">{{item}}</button></nav>
       <div class="aside-bottom"><span class="dot"></span> Connected to Solus<button class="quiet" @click="logout" :disabled="busy">Lock workspace</button></div>
     </aside>

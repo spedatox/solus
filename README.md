@@ -1,3 +1,5 @@
+<img src="docs/images/solus-logo.svg" alt="Solus logo" width="96" height="96">
+
 # Solus — SPEDA Mark VI Accounting Module
 
 **AI-ready commands. Deterministic accounting. Your own books.**
