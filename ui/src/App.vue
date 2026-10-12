@@ -10,6 +10,8 @@ watch(language, value => {
   document.documentElement.lang = value
   try { localStorage.setItem('solus_language', value) } catch {}
 }, { immediate: true })
+const pendingReads = ref(0)
+const loadingData = computed(() => pendingReads.value > 0)
 const api = createAPI()
 const localDate = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
 const authenticated = ref(false), key = ref(''), busy = ref(false), error = ref(''), notice = ref('')
@@ -60,6 +62,8 @@ async function loadBooks() {
   if (bookId.value) await loadBook()
 }
 async function loadBook() {
+  pendingReads.value++
+  try {
   if (!bookId.value) return
   const prefix = `/books/${bookId.value}`
   const [a,s,e,o,p,f,b,r,i] = await Promise.all([
@@ -76,6 +80,7 @@ async function loadBook() {
   fillCalendar()
   if (card.value?.card_calendar) await loadStatement()
   else statement.value = null
+  } finally { pendingReads.value-- }
 }
 async function save(payload, message = 'Saved. The journal and receipt committed together.') {
   const receipt = await api.write(normalizeAmounts(payload, language.value))
@@ -108,9 +113,12 @@ function fillCalendar() {
 }
 async function saveCalendar() { await act(async()=>{await save({operation:'card_calendar_put',book_id:bookId.value,account_id:cardId.value,unbilled_account_id:calendarForm.unbilled_account_id || null,closing_day:calendarForm.closing_day,due_day:calendarForm.rule==='day'?calendarForm.due_day:null,due_offset:calendarForm.rule==='offset'?calendarForm.due_offset:null,expected_version:calendarForm.expected_version,effective_period:calendarForm.effective_period || null},'Card dates saved. Existing installment dates remain in their history.')}) }
 async function loadStatement() {
+  pendingReads.value++
+  try {
   if (!card.value?.card_calendar) { statement.value=null; return }
   statement.value=await api.read(`/books/${bookId.value}/statement?account_id=${cardId.value}&period=${period.value}`)
   Object.assign(statementForm,{opens_after:statement.value.opens_after,closes_on:statement.value.closes_on,due_on:statement.value.due_on,stated_balance:statement.value.stated_balance ?? '',minimum_due:statement.value.minimum_due ?? '',expected_version:statement.value.statement_version || 0})
+  } finally { pendingReads.value-- }
 }
 async function saveStatement() { await act(async()=>{ await save({operation:'card_statement_put',book_id:bookId.value,account_id:cardId.value,period:period.value,...statementForm,stated_balance:statementForm.stated_balance || null,minimum_due:statementForm.minimum_due || null},'Statement dates and supplied bank figures saved.'); await loadStatement() }) }
 async function reverse() { await act(async()=>{await save({operation:'reverse',book_id:bookId.value,event_id:reversal.id,reason:reversal.reason,occurred_on:reversal.occurred_on}); reversal.id=''; reversal.reason=''}) }
@@ -166,8 +174,8 @@ onMounted(async()=>{try{configured.value=(await api.read('/auth-status')).config
       <nav :aria-label="t('Main navigation')"><button v-for="item in nav" :key="item" :class="{selected:page===item}" @click="page=item">{{ t(item) }}</button></nav>
       <div class="aside-bottom"><span class="dot"></span> {{ t("Connected to Solus API") }}<button class="quiet" @click="logout" :disabled="busy">{{ t("Lock workspace") }}</button></div>
     </aside>
-    <main><header><div><span class="eyebrow">{{ t(book?.kind==='business'?'BUSINESS BOOKS':'PERSONAL FINANCES') }}</span><h1>{{ t(page) }}</h1></div><div class="toolbar"><label class="language-picker">{{ t('Language') }}<select v-model="language" :aria-label="t('Language')"><option value="tr">Türkçe</option><option value="en">English</option></select></label><label>{{ t("Book") }}<select :disabled="busy" :aria-label="t('Book')" v-model="bookId"><option value="" disabled>{{ t("Select a book") }}</option><option v-for="b in books" :value="b.id" :key="b.id">{{b.name}}</option></select></label><label>{{ t("Reporting month") }}<input :disabled="busy" v-model="period" type="month" required></label><button class="secondary" @click="act(loadBook)" :disabled="busy">{{ t("Refresh") }}</button></div></header>
-      <p v-if="error" class="error" role="alert">{{ t(error) }}</p><p v-if="notice" class="notice" role="status">{{ t(notice) }}</p><div v-if="api.hasPending()"><button class="secondary" @click="recoverReceipt" :disabled="busy">{{ t("Check earlier command receipt") }}</button> <button class="secondary" @click="resolveReceipt" :disabled="busy">{{ t("Resolve earlier save") }}</button><p>{{ t("Resolve returns the saved result if it committed, or cancels the unfinished save so it cannot arrive later. Recorded transactions remain intact.") }}</p></div><p v-if="busy" class="loading" role="status">{{ t("Working…") }}</p>
+    <main :aria-busy="busy"><header><div><span class="eyebrow">{{ t(book?.kind==='business'?'BUSINESS BOOKS':'PERSONAL FINANCES') }}</span><h1>{{ t(page) }}</h1></div><div class="toolbar"><label class="language-picker">{{ t('Language') }}<select v-model="language" :aria-label="t('Language')"><option value="tr">Türkçe</option><option value="en">English</option></select></label><label>{{ t("Book") }}<select :disabled="busy" :aria-label="t('Book')" v-model="bookId"><option value="" disabled>{{ t("Select a book") }}</option><option v-for="b in books" :value="b.id" :key="b.id">{{b.name}}</option></select></label><label>{{ t("Reporting month") }}<input :disabled="busy" v-model="period" type="month" required></label><button class="secondary" @click="act(loadBook)" :disabled="busy">{{ t("Refresh") }}</button></div></header>
+      <p v-if="error" class="error" role="alert">{{ t(error) }}</p><p v-if="notice" class="notice" role="status">{{ t(notice) }}</p><div v-if="api.hasPending()"><button class="secondary" @click="recoverReceipt" :disabled="busy">{{ t("Check earlier command receipt") }}</button> <button class="secondary" @click="resolveReceipt" :disabled="busy">{{ t("Resolve earlier save") }}</button><p>{{ t("Resolve returns the saved result if it committed, or cancels the unfinished save so it cannot arrive later. Recorded transactions remain intact.") }}</p></div><div v-if="busy" class="loading-overlay" role="status" aria-live="polite" aria-atomic="true"><div class="loading-card"><span class="loading-spinner" aria-hidden="true"></span><strong>{{ t(loadingData ? 'Loading data…' : 'Working…') }}</strong><span v-if="loadingData">{{book?.name}} · {{period}}</span><small>{{ t('Please wait; the screen will update when this finishes.') }}</small></div></div>
       <section v-if="!books.length || page==='Accounts'" class="panel"><h2>{{ t(books.length?'Add a book':'Start with a book') }}</h2><p>{{ t("Keep personal and business activity in separate books. You name the books and accounts.") }}</p><form @submit.prevent="createBook" class="form-grid"><label>{{ t("Name") }}<input :disabled="busy" v-model="bookForm.name" required maxlength="120" :placeholder="t('Name your book')"></label><label>{{ t("Purpose") }}<select :disabled="busy" :aria-label="t('Purpose')" v-model="bookForm.kind"><option value="personal">{{ t("Personal") }}</option><option value="business">{{ t("Freelance / business") }}</option></select></label><label>{{ t("Currency") }}<input :disabled="busy" v-model="bookForm.currency" required maxlength="3"></label><label>{{ t("Timezone") }}<input :disabled="busy" v-model="bookForm.timezone" required></label><button :disabled="busy">{{ t("Create book") }}</button></form></section>
       <section v-if="page==='Settings'" class="panel"><h2>{{ t("Password & security") }}</h2><button class="secondary" @click="logout" :disabled="busy">{{ t("Lock workspace") }}</button><button class="secondary" @click="logout" :disabled="busy">{{ t("Lock workspace") }}</button><p>{{ t("Changing your password signs out every Solus browser session. Your accounting records remain intact.") }}</p><form @submit.prevent="changePassword" class="form-grid"><label>{{ t("Current password") }}<input :disabled="busy" v-model="password" type="password" autocomplete="current-password" required maxlength="256"></label><label>{{ t("New password") }}<input :disabled="busy" v-model="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label><label>{{ t("Confirm new password") }}<input :disabled="busy" v-model="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label><button :disabled="busy">{{ t("Change password & sign out") }}</button></form><p>{{ t("Login attempts are limited. Sessions expire after 30 minutes of inactivity or 8 hours, and authorize only the Solus API. Passwords are stored as salted, memory-hard hashes.") }}</p></section>
       <template v-if="book">

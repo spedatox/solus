@@ -29,6 +29,8 @@ export function translate(text, language) {
   return language === 'tr' ? (turkish[text] ?? text) : text
 }
 const turkish = {
+  "Loading data…": "Veriler yükleniyor…",
+  "Please wait; the screen will update when this finishes.": "Lütfen bekleyin; işlem tamamlandığında ekran güncellenecek.",
 
   "Overview": "Genel Bakış",
   "Journal": "Yevmiye Defteri",
